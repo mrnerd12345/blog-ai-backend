@@ -1,3 +1,5 @@
+import openai from "./openaiClient.js";
+
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -444,4 +446,40 @@ Write a full blog article with intro, sections, and conclusion.
 
 app.listen(PORT, () => {
   console.log(`Blog AI backend running on port ${PORT}`);
+});
+
+app.post("/generate-article", async (req, res) => {
+  try {
+    const { topic, tone = "professional", length = "medium" } = req.body;
+
+    if (!topic) {
+      return res.status(400).json({ error: "Topic is required" });
+    }
+
+    const prompt = `
+Write a ${length} blog article about "${topic}".
+Tone: ${tone}.
+Include:
+- SEO-friendly title
+- Introduction
+- Subheadings
+- Conclusion
+Do NOT include markdown symbols.
+`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 900
+    });
+
+    res.json({
+      title: response.choices[0].message.content.split("\n")[0],
+      content: response.choices[0].message.content
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Article generation failed" });
+  }
 });
