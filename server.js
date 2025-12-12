@@ -12,6 +12,18 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || "CHANGE_ME";
 
+app.use(cors({
+  origin: [
+    "http://localhost:5500",
+    "https://blog-ai-backend-qrsp.onrender.com"
+  ],
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+}));
+
+app.options("*", cors());
+
 // ========================
 // OpenAI
 // ========================
@@ -40,7 +52,15 @@ const PLANS = {
 // ========================
 // Middleware
 // ========================
-app.use(cors());
+app.use(cors({
+  origin: [
+    "http://localhost:5500",
+    "https://blog-ai-backend-qrsp.onrender.com"
+  ],
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+}));
 app.use(express.json());
 
 // ========================
