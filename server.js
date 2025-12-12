@@ -12,66 +12,51 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || "CHANGE_ME";
 
-app.use(cors({
-  origin: [
-    "http://localhost:5500",
-    "https://blog-ai-backend-qrsp.onrender.com"
-  ],
+/* =========================
+   CORS (FIXED – SINGLE SOURCE)
+========================= */
+const corsOptions = {
+  origin: "http://localhost:5500",
   methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
-}));
+  allowedHeaders: ["Content-Type", "Authorization"]
+};
 
-app.options("*", cors());
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+app.use(express.json());
 
-// ========================
-// OpenAI
-// ========================
+/* =========================
+   OpenAI
+========================= */
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// ========================
-// Stripe
-// ========================
+/* =========================
+   Stripe (optional)
+========================= */
 const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
 
-const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
-
-// ========================
-// Plans
-// ========================
+/* =========================
+   Plans
+========================= */
 const PLANS = {
   free: { maxTokens: 20000 },
   pro: { maxTokens: 200000 },
   premium: { maxTokens: 1000000 }
 };
 
-// ========================
-// Middleware
-// ========================
-app.use(cors({
-  origin: [
-    "http://localhost:5500",
-    "https://blog-ai-backend-qrsp.onrender.com"
-  ],
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
-}));
-app.use(express.json());
-
-// ========================
-// Auth Middleware
-// ========================
+/* =========================
+   Auth Middleware
+========================= */
 function auth(req, res, next) {
   const header = req.headers.authorization;
   if (!header) return res.status(401).json({ error: "Missing token" });
 
-  const token = header.split(" ")[1];
   try {
+    const token = header.split(" ")[1];
     req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch {
@@ -79,16 +64,16 @@ function auth(req, res, next) {
   }
 }
 
-// ========================
-// Root
-// ========================
+/* =========================
+   Root
+========================= */
 app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "Blog AI backend is running" });
+  res.json({ status: "ok", message: "Blog AI backend running" });
 });
 
-// ========================
-// Register
-// ========================
+/* =========================
+   Register
+========================= */
 app.post("/register", (req, res) => {
   const { email, password } = req.body;
   if (!email || !password)
@@ -107,9 +92,9 @@ app.post("/register", (req, res) => {
   );
 });
 
-// ========================
-// Login
-// ========================
+/* =========================
+   Login
+========================= */
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
 
@@ -126,14 +111,14 @@ app.post("/login", (req, res) => {
         { expiresIn: "7d" }
       );
 
-      res.json({ token, user });
+      res.json({ token });
     }
   );
 });
 
-// ========================
-// Generate Article (NO AUTH)
-// ========================
+/* =========================
+   Generate Article (NO AUTH)
+========================= */
 app.post("/generate-article", async (req, res) => {
   try {
     const { topic, tone = "professional", length = "medium" } = req.body;
@@ -168,54 +153,58 @@ Plain text only.
   }
 });
 
-// ========================
-// Generate Article (AUTH + TOKENS)
-// ========================
+/* =========================
+   Generate Article (AUTH)
+========================= */
 app.post("/generate", auth, async (req, res) => {
   try {
-    const { topic, targetWords = 1200 } = req.body;
+    const { topic, targetWords = 800 } = req.body;
     if (!topic) return res.status(400).json({ error: "Topic required" });
 
-    db.get(`SELECT * FROM users WHERE id = ?`, [req.user.id], async (err, user) => {
-      if (!user) return res.status(404).json({ error: "User not found" });
+    db.get(
+      `SELECT * FROM users WHERE id = ?`,
+      [req.user.id],
+      async (err, user) => {
+        if (!user) return res.status(404).json({ error: "User not found" });
 
-      const plan = PLANS[user.plan] || PLANS.free;
-      const estimatedTokens = targetWords * 2;
+        const plan = PLANS[user.plan] || PLANS.free;
+        const estimatedTokens = targetWords * 2;
 
-      if (user.usedTokens + estimatedTokens > plan.maxTokens) {
-        return res.status(402).json({ error: "Token limit reached" });
+        if (user.usedTokens + estimatedTokens > plan.maxTokens) {
+          return res.status(402).json({ error: "Token limit reached" });
+        }
+
+        const response = await openai.responses.create({
+          model: "gpt-4.1-mini",
+          input: `Write a ${targetWords}-word blog article about ${topic}.`,
+          max_output_tokens: estimatedTokens
+        });
+
+        const article = response.output[0].content[0].text;
+
+        db.run(
+          `UPDATE users SET usedTokens = usedTokens + ? WHERE id = ?`,
+          [estimatedTokens, user.id]
+        );
+
+        db.run(
+          `INSERT INTO articles (userId, topic, content, createdAt)
+           VALUES (?, ?, ?, datetime('now'))`,
+          [user.id, topic, article]
+        );
+
+        res.json({ article });
       }
-
-      const response = await openai.responses.create({
-        model: "gpt-4.1-mini",
-        input: `Write a ${targetWords}-word blog article about ${topic}.`,
-        max_output_tokens: estimatedTokens
-      });
-
-      const article = response.output[0].content[0].text;
-
-      db.run(
-        `UPDATE users SET usedTokens = usedTokens + ? WHERE id = ?`,
-        [estimatedTokens, user.id]
-      );
-
-      db.run(
-        `INSERT INTO articles (userId, topic, content, createdAt)
-         VALUES (?, ?, ?, datetime('now'))`,
-        [user.id, topic, article]
-      );
-
-      res.json({ article });
-    });
+    );
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Generation failed" });
   }
 });
 
-// ========================
-// Start Server
-// ========================
+/* =========================
+   Start Server
+========================= */
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
