@@ -13,6 +13,7 @@
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "openai": "^4.56.0",
+    "sqlite3": "^5.1.7",
     "stripe": "^16.0.0"
   }
 }
